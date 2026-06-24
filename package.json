@@ -1,0 +1,22 @@
+{
+  "name": "traverse-flight-scraper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Queries Aeroglobe agent API for domestic Pakistan fares on a 12h cron; writes to Supabase flight_routes",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "scrape:once": "tsx src/index.ts --once",
+    "scrape:dry": "DRY_RUN=true tsx src/index.ts --once"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

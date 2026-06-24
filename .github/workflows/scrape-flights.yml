@@ -1,0 +1,36 @@
+name: Scrape Flight Fares
+
+on:
+  schedule:
+    # Every 12 hours. Adjust if you want a different cadence.
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+    # "Run workflow" button in the GitHub UI for manual triggers
+
+concurrency:
+  group: scrape-flights
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Optional env fallback — if the flight_scraper_config row is missing,
+          # the scraper uses these instead.
+          AEROGLOBE_EMAIL: ${{ secrets.AEROGLOBE_EMAIL }}
+          AEROGLOBE_PASSWORD: ${{ secrets.AEROGLOBE_PASSWORD }}
+        run: npm run scrape:once
