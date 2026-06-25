@@ -29,11 +29,6 @@ export const ROUTES: RouteSpec[] = [
   { origin: "ISB", destination: "LHE" },
   { origin: "KHI", destination: "LHE" },
   { origin: "LHE", destination: "KHI" },
-  // Gwadar (GWD)
-  { origin: "KHI", destination: "GWD" },
-  { origin: "GWD", destination: "KHI" },
-  { origin: "ISB", destination: "GWD" },
-  { origin: "GWD", destination: "ISB" },
 ];
 
 // Only fire RETURN searches for these origin→destination pairs (no reverse).
@@ -46,8 +41,6 @@ const RETURN_ONLY_FORWARD_PAIRS = new Set<string>([
   "KHI-ISB",
   "LHE-ISB",
   "KHI-LHE",
-  "KHI-GWD",
-  "ISB-GWD",
 ]);
 
 export function shouldQueryReturn(origin: string, destination: string): boolean {
@@ -55,7 +48,7 @@ export function shouldQueryReturn(origin: string, destination: string): boolean 
 }
 
 // Days from runtime to sample fares
-export const DATE_HORIZON_DAYS = [7, 30, 60, 90];
+export const DATE_HORIZON_DAYS = [7, 30, 60];
 
 // Return-trip gaps to sample (in nights). Most packages are 5-7 nights.
 export const RETURN_TRIP_NIGHTS = [5, 7];
