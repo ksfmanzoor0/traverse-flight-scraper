@@ -1,4 +1,4 @@
-import { ROUTES, DATE_HORIZON_DAYS, RETURN_TRIP_NIGHTS, INTER_SEARCH_JITTER_MS } from "./config.js";
+import { ROUTES, DATE_HORIZON_DAYS, RETURN_TRIP_NIGHTS, INTER_SEARCH_JITTER_MS, shouldQueryReturn } from "./config.js";
 import { resolveAeroglobeCredentials } from "./credentials.js";
 import { loginAeroglobe, searchAeroglobe, type AeroglobeSession } from "./scrapers/aeroglobe.js";
 import { persist } from "./storage.js";
@@ -57,7 +57,10 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
       }
       await sleep(jitterMs());
 
-      // RETURN at each gap
+      // RETURN at each gap — only for "forward" pairs to avoid double-pricing
+      if (!shouldQueryReturn(route.origin, route.destination)) {
+        continue;
+      }
       for (const nights of RETURN_TRIP_NIGHTS) {
         const returnDate = addDays(departDate, nights);
         try {
