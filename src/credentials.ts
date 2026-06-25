@@ -1,4 +1,26 @@
-import { createClient } from "@supabase/supabase-js";
+// Hit the REST endpoint directly to avoid the Supabase SDK's WebSocket
+// dependency (Node 20 lacks native WS support; Node 22+ has it). Using
+// fetch here means the lookup works on either Node version without
+// adding `ws` as a dependency.
+async function fetchConfigViaRest(supabaseUrl: string, serviceKey: string) {
+  const url = `${supabaseUrl}/rest/v1/flight_scraper_config?id=eq.default&select=aeroglobe_email,aeroglobe_password,scrape_enabled`;
+  const res = await fetch(url, {
+    headers: {
+      apikey: serviceKey,
+      authorization: `Bearer ${serviceKey}`,
+      accept: "application/json",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Supabase REST ${res.status}: ${await res.text().catch(() => "")}`);
+  }
+  const rows = (await res.json()) as Array<{
+    aeroglobe_email?: string | null;
+    aeroglobe_password?: string | null;
+    scrape_enabled?: boolean | null;
+  }>;
+  return rows[0] ?? null;
+}
 
 export interface AeroglobeCredentials {
   email: string;
@@ -20,16 +42,8 @@ export async function resolveAeroglobeCredentials(): Promise<AeroglobeCredential
 
   if (sbUrl && sbKey) {
     try {
-      const sb = createClient(sbUrl, sbKey, { auth: { persistSession: false } });
-      const { data, error } = await sb
-        .from("flight_scraper_config")
-        .select("aeroglobe_email, aeroglobe_password, scrape_enabled")
-        .eq("id", "default")
-        .maybeSingle();
-
-      if (error) {
-        console.warn(`[creds] Supabase lookup error: ${error.message} — falling back to env`);
-      } else if (data) {
+      const data = await fetchConfigViaRest(sbUrl, sbKey);
+      if (data) {
         if (data.scrape_enabled === false) {
           throw new Error("[creds] flight_scraper_config.scrape_enabled = false — aborting run");
         }
@@ -45,7 +59,7 @@ export async function resolveAeroglobeCredentials(): Promise<AeroglobeCredential
     } catch (err) {
       // Re-throw scrape_enabled=false errors. Swallow others and fall through to env.
       if ((err as Error).message?.includes("scrape_enabled")) throw err;
-      console.warn(`[creds] Supabase lookup threw: ${(err as Error).message} — falling back to env`);
+      console.warn(`[creds] Supabase REST lookup failed: ${(err as Error).message} — falling back to env`);
     }
   }
 
