@@ -1,4 +1,10 @@
-import { ROUTES, DATE_HORIZON_DAYS, RETURN_TRIP_NIGHTS, INTER_SEARCH_JITTER_MS, shouldQueryReturn } from "./config.js";
+import {
+  ROUTES,
+  INTER_SEARCH_JITTER_MS,
+  onewayHorizonsFor,
+  returnHorizonsFor,
+  returnNightsFor,
+} from "./config.js";
 import { resolveAeroglobeCredentials } from "./credentials.js";
 import { loginAeroglobe, searchAeroglobe, type AeroglobeSession } from "./scrapers/aeroglobe.js";
 import { persist } from "./storage.js";
@@ -37,10 +43,13 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
   let errors = 0;
 
   for (const route of ROUTES) {
-    for (const offset of DATE_HORIZON_DAYS) {
-      const departDate = isoDateOffset(offset);
+    const onewayHorizons = onewayHorizonsFor(route.origin, route.destination);
+    const returnHorizons = returnHorizonsFor(route.origin, route.destination);
+    const returnNights = returnNightsFor(route.origin, route.destination);
 
-      // ONE WAY
+    // ONEWAY
+    for (const offset of onewayHorizons) {
+      const departDate = isoDateOffset(offset);
       try {
         const rows = await searchAeroglobe({
           session,
@@ -56,12 +65,12 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
         console.error(`[aero] ONEWAY ${route.origin}→${route.destination} ${departDate} failed: ${(err as Error).message}`);
       }
       await sleep(jitterMs());
+    }
 
-      // RETURN at each gap — only for "forward" pairs to avoid double-pricing
-      if (!shouldQueryReturn(route.origin, route.destination)) {
-        continue;
-      }
-      for (const nights of RETURN_TRIP_NIGHTS) {
+    // RETURN — only forward pairs, per-route horizons, × per-route night gaps
+    for (const offset of returnHorizons) {
+      const departDate = isoDateOffset(offset);
+      for (const nights of returnNights) {
         const returnDate = addDays(departDate, nights);
         try {
           const rows = await searchAeroglobe({

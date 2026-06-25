@@ -88,7 +88,10 @@ export async function searchAeroglobe(opts: SearchOpts): Promise<FareRow[]> {
     route_type: opts.routeType,
     traveler_count: { adult_count: 1, child_count: 0, infant_count: 0 },
     cabin_class: "ECONOMY",
-    full_result: false,
+    // full_result=true forces Aeroglobe to wait for all carrier APIs to
+    // respond before returning keep_polling=false. With false, only the
+    // fastest cached carrier (usually PIA) makes it into the response.
+    full_result: true,
     non_stop_flight: false,
     origin: opts.origin,
     destination: opts.destination,
