@@ -31,10 +31,30 @@ export const ROUTES: RouteSpec[] = [
   { origin: "LHE", destination: "KHI" },
 ];
 
+// SCRAPE_MODE picks which horizon set the runner uses:
+//  - "normal"   (default): near-term dates, runs every 12h — feeds live quotes
+//  - "extended": far-term dates 90–180 days out, runs monthly — reveals which
+//    routes/carriers actually operate 3–6 months down the line. Empty scrape
+//    results in this window are recorded in flight_route_scrape_log so the
+//    quote engine can distinguish "no scrape yet" from "carrier suspended."
+export type ScrapeMode = "normal" | "extended";
+
+export function getScrapeMode(): ScrapeMode {
+  const raw = (process.env.SCRAPE_MODE ?? "normal").toLowerCase();
+  return raw === "extended" ? "extended" : "normal";
+}
+
 // Defaults applied to every route unless overridden below.
 export const DEFAULT_ONEWAY_HORIZONS = [30];
 export const DEFAULT_RETURN_HORIZONS = [7, 30, 60];
 export const DEFAULT_RETURN_NIGHTS = [5, 7];        // both gaps by default
+
+// Extended mode — 90/120/150/180 day horizons. Samples 4 far dates per route
+// per monthly run. Adequate to detect a Nov–Mar carrier suspension pattern
+// (each month becomes a distinct depart_date bucket in the scrape log).
+export const EXTENDED_ONEWAY_HORIZONS = [90, 120, 150, 180];
+export const EXTENDED_RETURN_HORIZONS = [90, 120, 150, 180];
+export const EXTENDED_RETURN_NIGHTS = [5];          // single gap keeps run time bounded
 
 // Per-route overrides. Empty array `[]` disables that search type for the route.
 const ROUTE_OVERRIDES: Record<
@@ -63,18 +83,21 @@ const RETURN_FORWARD_PAIRS = new Set<string>([
   "KHI-LHE",
 ]);
 
-export function onewayHorizonsFor(origin: string, destination: string): number[] {
+export function onewayHorizonsFor(origin: string, destination: string, mode: ScrapeMode = getScrapeMode()): number[] {
+  if (mode === "extended") return EXTENDED_ONEWAY_HORIZONS;
   const key = `${origin}-${destination}`;
   return ROUTE_OVERRIDES[key]?.oneway ?? DEFAULT_ONEWAY_HORIZONS;
 }
 
-export function returnHorizonsFor(origin: string, destination: string): number[] {
+export function returnHorizonsFor(origin: string, destination: string, mode: ScrapeMode = getScrapeMode()): number[] {
   const key = `${origin}-${destination}`;
   if (!RETURN_FORWARD_PAIRS.has(key)) return [];
+  if (mode === "extended") return EXTENDED_RETURN_HORIZONS;
   return ROUTE_OVERRIDES[key]?.return ?? DEFAULT_RETURN_HORIZONS;
 }
 
-export function returnNightsFor(origin: string, destination: string): number[] {
+export function returnNightsFor(origin: string, destination: string, mode: ScrapeMode = getScrapeMode()): number[] {
+  if (mode === "extended") return EXTENDED_RETURN_NIGHTS;
   const key = `${origin}-${destination}`;
   return ROUTE_OVERRIDES[key]?.returnNights ?? DEFAULT_RETURN_NIGHTS;
 }

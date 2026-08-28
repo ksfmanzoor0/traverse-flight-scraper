@@ -1,0 +1,38 @@
+name: Scrape Flight Fares (Extended Horizon)
+
+# Monthly sweep of 90/120/150/180 day-out fares. Complements the 12h near-term
+# scraper. Purpose: detect which carriers actually publish 3–6 month-out fares
+# on each route so the quote engine can distinguish "seasonal suspension" from
+# "scraper hasn't looked yet."
+on:
+  schedule:
+    # 1st of every month, 03:00 UTC (08:00 PKT — light aeroglobe load).
+    - cron: '0 3 1 * *'
+  workflow_dispatch:
+
+concurrency:
+  group: scrape-flights-extended
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run extended-horizon scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AEROGLOBE_EMAIL: ${{ secrets.AEROGLOBE_EMAIL }}
+          AEROGLOBE_PASSWORD: ${{ secrets.AEROGLOBE_PASSWORD }}
+          SCRAPE_MODE: extended
+        run: npm run scrape:once

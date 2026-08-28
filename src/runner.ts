@@ -4,10 +4,11 @@ import {
   onewayHorizonsFor,
   returnHorizonsFor,
   returnNightsFor,
+  getScrapeMode,
 } from "./config.js";
 import { resolveAeroglobeCredentials } from "./credentials.js";
 import { loginAeroglobe, searchAeroglobe, type AeroglobeSession } from "./scrapers/aeroglobe.js";
-import { persist } from "./storage.js";
+import { persist, persistScrapeLog, type ScrapeLogEntry } from "./storage.js";
 import type { FareRow } from "./types.js";
 
 function isoDateOffset(days: number): string {
@@ -31,21 +32,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-export async function runOnce(): Promise<{ collected: number; persisted: number; errors: number }> {
+export async function runOnce(): Promise<{ collected: number; persisted: number; errors: number; visits: number }> {
+  const mode = getScrapeMode();
   const creds = await resolveAeroglobeCredentials();
-  console.log(`[aero] logging in… (creds from ${creds.source})`);
+  console.log(`[aero] mode=${mode} logging in… (creds from ${creds.source})`);
   const session: AeroglobeSession = await loginAeroglobe(creds.email, creds.password);
   console.log(
     `[aero] session: org=${session.organizationId} profile=${session.financialProfileId} user="${session.userFullName}"`,
   );
 
   const allFares: FareRow[] = [];
+  const visits: ScrapeLogEntry[] = [];
   let errors = 0;
 
+  const scrapedAtIso = new Date().toISOString();
+
   for (const route of ROUTES) {
-    const onewayHorizons = onewayHorizonsFor(route.origin, route.destination);
-    const returnHorizons = returnHorizonsFor(route.origin, route.destination);
-    const returnNights = returnNightsFor(route.origin, route.destination);
+    const onewayHorizons = onewayHorizonsFor(route.origin, route.destination, mode);
+    const returnHorizons = returnHorizonsFor(route.origin, route.destination, mode);
+    const returnNights = returnNightsFor(route.origin, route.destination, mode);
 
     // ONEWAY
     for (const offset of onewayHorizons) {
@@ -59,7 +64,13 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
           departDate,
         });
         allFares.push(...rows);
-        console.log(`[aero] ONEWAY ${route.origin}→${route.destination} ${departDate}: ${rows.length} fares`);
+        const carriersSeen = uniqueAirlines(rows);
+        visits.push({
+          origin: route.origin, destination: route.destination,
+          routeType: "ONEWAY", departDate, returnDate: null,
+          carriersSeen, fareCount: rows.length, mode, scrapedAt: scrapedAtIso,
+        });
+        console.log(`[aero] ONEWAY ${route.origin}→${route.destination} ${departDate}: ${rows.length} fares [${carriersSeen.join(",") || "empty"}]`);
       } catch (err) {
         errors += 1;
         console.error(`[aero] ONEWAY ${route.origin}→${route.destination} ${departDate} failed: ${(err as Error).message}`);
@@ -82,8 +93,14 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
             returnDate,
           });
           allFares.push(...rows);
+          const carriersSeen = uniqueAirlines(rows);
+          visits.push({
+            origin: route.origin, destination: route.destination,
+            routeType: "RETURN", departDate, returnDate,
+            carriersSeen, fareCount: rows.length, mode, scrapedAt: scrapedAtIso,
+          });
           console.log(
-            `[aero] RETURN ${route.origin}↔${route.destination} ${departDate}→${returnDate} (${nights}n): ${rows.length} fares`,
+            `[aero] RETURN ${route.origin}↔${route.destination} ${departDate}→${returnDate} (${nights}n): ${rows.length} fares [${carriersSeen.join(",") || "empty"}]`,
           );
         } catch (err) {
           errors += 1;
@@ -98,11 +115,16 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
 
   const dedup = dedupFares(allFares);
   const result = await persist(dedup);
+  const logResult = await persistScrapeLog(visits);
   console.log(
-    `[runner] collected=${allFares.length} unique=${dedup.length} wrote=${result.wrote} → ${result.destination} errors=${errors}`,
+    `[runner] mode=${mode} collected=${allFares.length} unique=${dedup.length} wrote=${result.wrote} → ${result.destination} visits=${visits.length} logged=${logResult.wrote} errors=${errors}`,
   );
 
-  return { collected: dedup.length, persisted: result.wrote, errors };
+  return { collected: dedup.length, persisted: result.wrote, errors, visits: visits.length };
+}
+
+function uniqueAirlines(rows: FareRow[]): string[] {
+  return Array.from(new Set(rows.map((r) => r.airline))).sort();
 }
 
 function dedupFares(rows: FareRow[]): FareRow[] {
