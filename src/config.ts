@@ -49,12 +49,58 @@ export const DEFAULT_ONEWAY_HORIZONS = [30];
 export const DEFAULT_RETURN_HORIZONS = [7, 30, 60];
 export const DEFAULT_RETURN_NIGHTS = [5, 7];        // both gaps by default
 
-// Extended mode — 90/120/150/180 day horizons. Samples 4 far dates per route
-// per monthly run. Adequate to detect a Nov–Mar carrier suspension pattern
-// (each month becomes a distinct depart_date bucket in the scrape log).
-export const EXTENDED_ONEWAY_HORIZONS = [90, 120, 150, 180];
-export const EXTENDED_RETURN_HORIZONS = [90, 120, 150, 180];
-export const EXTENDED_RETURN_NIGHTS = [5];          // single gap keeps run time bounded
+// Extended mode — Mon–Fri offsets from day 61 to day 180 (roughly 2–6 months
+// out from the run day). Non-overlapping with normal mode (which caps at day
+// 60 depart_date via the RETURN 60+7-night horizon). ~86 sample dates per
+// route, ~3.5 hrs per monthly run.
+//
+// From a late-August run, this covers **late October → late February** — the
+// exact window where PK domestic winter suspensions (LHE/KHI ↔ KDU) and
+// day-of-week-only schedules (PIA Wed/Thu/Fri, AirBlue Mon/Wed on ISB↔KDU)
+// become visible in the log.
+//
+// RETURN searches are disabled in extended mode — the ONEWAY per-leg data
+// tells us which carriers operate each day; RETURN is combined-leg pricing
+// that duplicates the signal and doubles run time.
+export const EXTENDED_ONEWAY_MIN_OFFSET = 61;
+export const EXTENDED_ONEWAY_MAX_OFFSET = 180;
+export const EXTENDED_RETURN_HORIZONS: number[] = [];
+export const EXTENDED_RETURN_NIGHTS: number[] = [];
+
+/** Generate offsets in [min, max] relative to today:
+ *  - Every Mon–Fri (5 days/week).
+ *  - One Saturday and one Sunday per calendar month (first weekend hit in each
+ *    month, capped at range). Enough to detect weekend-only or reduced-weekend
+ *    schedules without paying for full weekend coverage every week. */
+export function extendedOnewayOffsets(
+  today: Date = new Date(),
+  min: number = EXTENDED_ONEWAY_MIN_OFFSET,
+  max: number = EXTENDED_ONEWAY_MAX_OFFSET,
+): number[] {
+  const offsets: number[] = [];
+  const seenSatMonths = new Set<string>();
+  const seenSunMonths = new Set<string>();
+  for (let offset = min; offset <= max; offset++) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() + offset);
+    const dow = d.getUTCDay(); // 0=Sun, 6=Sat
+    const monthKey = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    if (dow === 6) {
+      if (seenSatMonths.has(monthKey)) continue;
+      seenSatMonths.add(monthKey);
+      offsets.push(offset);
+      continue;
+    }
+    if (dow === 0) {
+      if (seenSunMonths.has(monthKey)) continue;
+      seenSunMonths.add(monthKey);
+      offsets.push(offset);
+      continue;
+    }
+    offsets.push(offset);
+  }
+  return offsets;
+}
 
 // Per-route overrides. Empty array `[]` disables that search type for the route.
 const ROUTE_OVERRIDES: Record<
@@ -84,7 +130,7 @@ const RETURN_FORWARD_PAIRS = new Set<string>([
 ]);
 
 export function onewayHorizonsFor(origin: string, destination: string, mode: ScrapeMode = getScrapeMode()): number[] {
-  if (mode === "extended") return EXTENDED_ONEWAY_HORIZONS;
+  if (mode === "extended") return extendedOnewayOffsets();
   const key = `${origin}-${destination}`;
   return ROUTE_OVERRIDES[key]?.oneway ?? DEFAULT_ONEWAY_HORIZONS;
 }
