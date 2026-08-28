@@ -67,18 +67,36 @@ export const EXTENDED_ONEWAY_MAX_OFFSET = 180;
 export const EXTENDED_RETURN_HORIZONS: number[] = [];
 export const EXTENDED_RETURN_NIGHTS: number[] = [];
 
-/** Generate all Mon–Fri offsets in [min, max] relative to today. */
+/** Generate offsets in [min, max] relative to today:
+ *  - Every Mon–Fri (5 days/week).
+ *  - One Saturday and one Sunday per calendar month (first weekend hit in each
+ *    month, capped at range). Enough to detect weekend-only or reduced-weekend
+ *    schedules without paying for full weekend coverage every week. */
 export function extendedOnewayOffsets(
   today: Date = new Date(),
   min: number = EXTENDED_ONEWAY_MIN_OFFSET,
   max: number = EXTENDED_ONEWAY_MAX_OFFSET,
 ): number[] {
   const offsets: number[] = [];
+  const seenSatMonths = new Set<string>();
+  const seenSunMonths = new Set<string>();
   for (let offset = min; offset <= max; offset++) {
     const d = new Date(today);
     d.setUTCDate(d.getUTCDate() + offset);
     const dow = d.getUTCDay(); // 0=Sun, 6=Sat
-    if (dow === 0 || dow === 6) continue;
+    const monthKey = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+    if (dow === 6) {
+      if (seenSatMonths.has(monthKey)) continue;
+      seenSatMonths.add(monthKey);
+      offsets.push(offset);
+      continue;
+    }
+    if (dow === 0) {
+      if (seenSunMonths.has(monthKey)) continue;
+      seenSunMonths.add(monthKey);
+      offsets.push(offset);
+      continue;
+    }
     offsets.push(offset);
   }
   return offsets;
