@@ -61,3 +61,45 @@ export async function persist(rows: FareRow[]): Promise<{ wrote: number; skipped
   if (error) throw new Error(`Supabase upsert failed: ${error.message}`);
   return { wrote: count ?? rows.length, skipped: 0, destination: "supabase:flight_routes" };
 }
+
+/** One row per (route, depart_date) visit, regardless of whether fares came
+ *  back. Consumers use this to distinguish "carrier suspended for the month"
+ *  (visit happened, carrier not in carriers_seen) from "never scraped yet"
+ *  (no row exists at all). */
+export interface ScrapeLogEntry {
+  origin: string;
+  destination: string;
+  routeType: "ONEWAY" | "RETURN";
+  departDate: string;
+  returnDate: string | null;
+  carriersSeen: string[];
+  fareCount: number;
+  mode: "normal" | "extended";
+  scrapedAt: string;
+}
+
+export async function persistScrapeLog(entries: ScrapeLogEntry[]): Promise<{ wrote: number }> {
+  if (entries.length === 0) return { wrote: 0 };
+  if (DRY_RUN) return { wrote: entries.length };
+
+  const sb = getSupabase();
+  if (!sb) throw new Error("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing");
+
+  const payload = entries.map((e) => ({
+    origin: e.origin,
+    destination: e.destination,
+    route_type: e.routeType,
+    depart_date: e.departDate,
+    return_date: e.returnDate,
+    carriers_seen: e.carriersSeen,
+    fare_count: e.fareCount,
+    mode: e.mode,
+    scraped_at: e.scrapedAt,
+  }));
+
+  const { error, count } = await sb
+    .from("flight_route_scrape_log")
+    .insert(payload, { count: "exact" });
+  if (error) throw new Error(`scrape_log insert failed: ${error.message}`);
+  return { wrote: count ?? entries.length };
+}
