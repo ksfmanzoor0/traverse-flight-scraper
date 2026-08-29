@@ -41,13 +41,18 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
     `[aero] session: org=${session.organizationId} profile=${session.financialProfileId} user="${session.userFullName}"`,
   );
 
-  const allFares: FareRow[] = [];
-  const visits: ScrapeLogEntry[] = [];
+  const scrapedAtIso = new Date().toISOString();
+  let totalCollected = 0;
+  let totalPersisted = 0;
+  let totalVisits = 0;
   let errors = 0;
 
-  const scrapedAtIso = new Date().toISOString();
-
   for (const route of ROUTES) {
+    // Per-route accumulators. Flush after each route so a timeout mid-run
+    // preserves everything collected up to the last completed route instead
+    // of losing the whole session's work (extended mode = ~4 hrs).
+    const routeFares: FareRow[] = [];
+    const routeVisits: ScrapeLogEntry[] = [];
     const onewayHorizons = onewayHorizonsFor(route.origin, route.destination, mode);
     const returnHorizons = returnHorizonsFor(route.origin, route.destination, mode);
     const returnNights = returnNightsFor(route.origin, route.destination, mode);
@@ -63,9 +68,9 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
           routeType: "ONEWAY",
           departDate,
         });
-        allFares.push(...rows);
+        routeFares.push(...rows);
         const carriersSeen = uniqueAirlines(rows);
-        visits.push({
+        routeVisits.push({
           origin: route.origin, destination: route.destination,
           routeType: "ONEWAY", departDate, returnDate: null,
           carriersSeen, fareCount: rows.length, mode, scrapedAt: scrapedAtIso,
@@ -92,9 +97,9 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
             departDate,
             returnDate,
           });
-          allFares.push(...rows);
+          routeFares.push(...rows);
           const carriersSeen = uniqueAirlines(rows);
-          visits.push({
+          routeVisits.push({
             origin: route.origin, destination: route.destination,
             routeType: "RETURN", departDate, returnDate,
             carriersSeen, fareCount: rows.length, mode, scrapedAt: scrapedAtIso,
@@ -111,16 +116,31 @@ export async function runOnce(): Promise<{ collected: number; persisted: number;
         await sleep(jitterMs());
       }
     }
+
+    // Flush this route's results before moving on. Best-effort — a persist
+    // failure logs the error and continues to the next route rather than
+    // aborting the whole run.
+    const dedup = dedupFares(routeFares);
+    try {
+      const fareResult = await persist(dedup);
+      const logResult = await persistScrapeLog(routeVisits);
+      totalCollected += dedup.length;
+      totalPersisted += fareResult.wrote;
+      totalVisits += logResult.wrote;
+      console.log(
+        `[flush] ${route.origin}→${route.destination}: fares=${dedup.length} wrote=${fareResult.wrote} visits=${routeVisits.length} logged=${logResult.wrote}`,
+      );
+    } catch (err) {
+      errors += 1;
+      console.error(`[flush] ${route.origin}→${route.destination} persist failed: ${(err as Error).message}`);
+    }
   }
 
-  const dedup = dedupFares(allFares);
-  const result = await persist(dedup);
-  const logResult = await persistScrapeLog(visits);
   console.log(
-    `[runner] mode=${mode} collected=${allFares.length} unique=${dedup.length} wrote=${result.wrote} → ${result.destination} visits=${visits.length} logged=${logResult.wrote} errors=${errors}`,
+    `[runner] mode=${mode} collected=${totalCollected} persisted=${totalPersisted} visits=${totalVisits} errors=${errors}`,
   );
 
-  return { collected: dedup.length, persisted: result.wrote, errors, visits: visits.length };
+  return { collected: totalCollected, persisted: totalPersisted, errors, visits: totalVisits };
 }
 
 function uniqueAirlines(rows: FareRow[]): string[] {
