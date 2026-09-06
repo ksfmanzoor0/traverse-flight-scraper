@@ -43,6 +43,8 @@ export async function persist(rows: FareRow[]): Promise<{ wrote: number; skipped
     fare_total: r.fareTotal,
     base_fare: r.baseFare,
     tax: r.tax,
+    child_fare_total: r.childFareTotal,
+    infant_fare_total: r.infantFareTotal,
     rbd: r.rbd,
     is_refundable: r.isRefundable,
     currency: r.currency,
