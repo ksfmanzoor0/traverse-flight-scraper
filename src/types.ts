@@ -10,9 +10,11 @@ export interface FareRow {
   routeType: RouteType;
   departDate: string;          // YYYY-MM-DD
   returnDate: string | null;   // YYYY-MM-DD for RETURN, null for ONEWAY
-  fareTotal: number;           // total_amount_after_pricing (PKR, integer)
-  baseFare: number;            // base_fare
-  tax: number;                 // tax
+  fareTotal: number;           // adult gross_fare (PKR, integer) — from pax_type_fare_breakdown.adult.gross_fare
+  baseFare: number;            // adult base_fare
+  tax: number;                 // adult tax
+  childFareTotal: number | null;   // child gross_fare from pax_type_fare_breakdown; null if carrier doesn't quote children
+  infantFareTotal: number | null;  // infant gross_fare from pax_type_fare_breakdown; null if carrier doesn't quote infants
   rbd: string | null;          // e.g. "ECO LIGHT - I"
   isRefundable: boolean;
   currency: "PKR";

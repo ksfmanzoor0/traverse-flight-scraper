@@ -86,7 +86,9 @@ export async function searchAeroglobe(opts: SearchOpts): Promise<FareRow[]> {
   const pollId = generatePollId();
   const body: Record<string, unknown> = {
     route_type: opts.routeType,
-    traveler_count: { adult_count: 1, child_count: 0, infant_count: 0 },
+    // 1A+1C+1I always: Aeroglobe returns pax_type_fare_breakdown for all
+    // three, so we get per-pax gross_fare in one call. No extra API load.
+    traveler_count: { adult_count: 1, child_count: 1, infant_count: 1 },
     cabin_class: "ECONOMY",
     // full_result=true forces Aeroglobe to wait for all carrier APIs to
     // respond before returning keep_polling=false. With false, only the
@@ -180,9 +182,28 @@ function parseFlightOptions(data: any, opts: SearchOpts, pollId: string): FareRo
 
     if (!cheapest) continue;
 
-    const totalAfter = Number(cheapest?.price?.total_amount_after_pricing?.value ?? cheapest?.price?.gross_fare?.value ?? 0);
-    const baseFare = Number(cheapest?.price?.base_fare?.value ?? 0);
-    const tax = Number(cheapest?.price?.tax?.value ?? 0);
+    // Adult / child / infant fares come from pax_type_fare_breakdown when
+    // present (multi-pax queries). Fall back to top-level total on single-pax
+    // responses so older cached carriers without breakdown still parse cleanly.
+    const breakdown = cheapest?.price?.pax_type_fare_breakdown;
+    const adultBreak = breakdown?.adult;
+    const childBreak = breakdown?.child;
+    const infantBreak = breakdown?.infant;
+
+    const adultTotal = Number(
+      adultBreak?.gross_fare?.value
+      ?? cheapest?.price?.total_amount_after_pricing?.value
+      ?? cheapest?.price?.gross_fare?.value
+      ?? 0,
+    );
+    const adultBase = Number(adultBreak?.base_fare?.value ?? cheapest?.price?.base_fare?.value ?? 0);
+    const adultTax = Number(adultBreak?.tax?.value ?? cheapest?.price?.tax?.value ?? 0);
+    const childTotal = childBreak?.gross_fare?.value != null
+      ? Math.round(Number(childBreak.gross_fare.value))
+      : null;
+    const infantTotal = infantBreak?.gross_fare?.value != null
+      ? Math.round(Number(infantBreak.gross_fare.value))
+      : null;
 
     rows.push({
       origin: opts.origin,
@@ -192,9 +213,11 @@ function parseFlightOptions(data: any, opts: SearchOpts, pollId: string): FareRo
       routeType: opts.routeType,
       departDate: opts.departDate,
       returnDate: opts.routeType === "RETURN" ? opts.returnDate ?? null : null,
-      fareTotal: Math.round(totalAfter),
-      baseFare: Math.round(baseFare),
-      tax: Math.round(tax),
+      fareTotal: Math.round(adultTotal),
+      baseFare: Math.round(adultBase),
+      tax: Math.round(adultTax),
+      childFareTotal: childTotal,
+      infantFareTotal: infantTotal,
       rbd: cheapest?.rbd ?? null,
       isRefundable: Boolean(cheapest?.is_refundable),
       currency: "PKR",
