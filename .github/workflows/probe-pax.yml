@@ -1,0 +1,48 @@
+name: Probe Multi-Pax Fare Response
+
+# One-shot probe: queries Aeroglobe with {1A, 1C, 1I} for a single
+# route/date and uploads the raw response as an artifact. Used to
+# find the per-pax fare-breakdown JSON path before wiring the parser.
+# Manual trigger only — writes nothing to Supabase.
+on:
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: 'Origin airport (IATA)'
+        required: false
+        default: 'KHI'
+      destination:
+        description: 'Destination airport (IATA)'
+        required: false
+        default: 'KDU'
+      depart_date:
+        description: 'Departure date YYYY-MM-DD (defaults to +30d)'
+        required: false
+        default: ''
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run probe
+        env:
+          AEROGLOBE_EMAIL: ${{ secrets.AEROGLOBE_EMAIL }}
+          AEROGLOBE_PASSWORD: ${{ secrets.AEROGLOBE_PASSWORD }}
+        run: npm run probe:pax -- "${{ inputs.origin }}" "${{ inputs.destination }}" "${{ inputs.depart_date }}"
+
+      - name: Upload raw response
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-pax-response
+          path: out/probe-pax-*.json
+          retention-days: 14
